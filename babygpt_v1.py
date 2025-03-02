@@ -64,68 +64,25 @@ class BabyGPT(nn.Module):
             idx_next = torch.multinomial(probs, num_samples=1) # 根据概率分布随机采样，这里num_samples=1表示采样一个token
             idx = torch.cat((idx, idx_next), dim=1) # 把采样的token拼接到序列后面
         return idx
-
 tokenizer = Tokenizer(text)
 vocab_size = tokenizer.vocab_size
+def count_parameters(model: nn.Module):
+    """统计模型参数量"""
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    param_size = sum(p.numel() * p.element_size() for p in model.parameters()) / 1024 / 1024  # size in MB
+    
+    print(f"Total Parameters: {total_params:,}")
+    print(f"Trainable Parameters: {trainable_params:,}")
+    print(f"Parameter Size: {param_size:.2f} MB")
+    
+    # 打印每层参数量
+    print("\nParameters by layer:")
+    for name, param in model.named_parameters():
+        print(f"{name}: {param.numel():,} parameters")
 
-raw_data = torch.tensor(tokenizer.encode(text), dtype=torch.long).to(device)
-n = int(tain_data_ratio*len(raw_data))
-data = {'train': raw_data[:n], 'val': raw_data[n:]}
-
-def get_batch(data, batch_size, block_size):
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-    x = torch.stack([data[i:i+block_size] for i in ix])
-    y = torch.stack([data[i+1:i+block_size+1] for i in ix])
-    x, y = x.to(device), y.to(device)
-    return x, y
-
-@torch.no_grad()
-def estimate_loss(model, data, batch_size, block_size, eval_iters):
-    '''
-    计算模型在训练集和验证集上的损失
-    '''
-    out = {}
-    model.eval() # 切换到评估模式
-    for split in ['train', 'val']:
-        losses = torch.zeros(eval_iters)
-        for k in range(eval_iters):
-            x, y = get_batch(data[split], batch_size, block_size)
-            _, loss = model(x, y)
-            losses[k] = loss.item()
-        out[split] = losses.mean()
-    model.train() # 切换回训练模式
-    return out
-
+# 在你的代码中添加：
 model = BabyGPT(vocab_size, n_embed).to(device)
+count_parameters(model)
 
-# 训练
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-
-start_time = time.time()
-tokens_processed = 0
-
-for iter in range(max_iters):
-    x, y = get_batch(data['train'], batch_size, block_size)
-    logits, loss = model(x, y)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
-
-    tokens_processed += batch_size * block_size
-
-    if iter % eval_interval == 0:
-        elapsed = time.time() - start_time
-        tokens_per_sec = tokens_processed / elapsed if elapsed > 0 else 0
-        losses = estimate_loss(model, data, batch_size, block_size, eval_iters)
-        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}, speed: {tokens_per_sec:.2f} tokens/sec")
-
-# 推理
-prompt_tokens = torch.stack([torch.tensor(tokenizer.encode(p)).to(device) for p in prompts])
-
-# 生成
-result = model.generate(prompt_tokens, max_new_token)
-
-# 解码并打印结果
-for tokens in result:
-    print(tokenizer.decode(tokens.tolist()))
-    print('-'*10)
+print(vocab_size)
